@@ -326,6 +326,7 @@ class ConfirmEmailToken(models.Model):
             self.key = self.generate_key()
         return super().save(*args, **kwargs)
 
+
 class Meta:
     verbose_name = "Токен подтверждения Email"
     verbose_name_plural = "Токены подтверждения Email"
