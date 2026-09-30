@@ -1,7 +1,7 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from .models import User, Contact
+from .models import User, Contact, ProductParameter, ProductInfo, Category, Shop
 
 # Сериализатор для входа пользователя
 
@@ -103,3 +103,60 @@ class ContactSerializer(serializers.ModelSerializer):
             "apartment",
             "phone",
         ]
+
+
+# Сериаизатор для параметров
+
+
+class ParamsSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source="parameter.name")
+
+    class Meta:
+        model = ProductParameter
+        fields = ["name", "value"]
+
+
+# Сериализато для информации о продукте
+
+
+class ProductInfoSerializer(serializers.ModelSerializer):
+    product = serializers.CharField(source="product.name")
+    catalog = serializers.CharField(source="product.catalog_id")
+    shop = serializers.CharField(source="shop.name")
+    description = serializers.CharField(source="model")
+    price = serializers.IntegerField()
+    price_rrc = serializers.IntegerField()
+    quantity = serializers.IntegerField()
+    product_parameters = ParamsSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ProductInfo
+        fields = [
+            "id",
+            "product",
+            "catalog",
+            "shop",
+            "description",
+            "price",
+            "price_rrc",
+            "quantity",
+            "product_parameters",
+        ]
+
+
+# Сериализато для категории
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ["id", "name"]
+
+
+# Сериализато для магазина
+
+
+class ShopSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Shop
+        fields = ["id", "name", "url"]
