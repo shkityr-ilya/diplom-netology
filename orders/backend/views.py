@@ -1,11 +1,22 @@
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.generics import ListAPIView, RetrieveAPIView
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
-from .models import ConfirmEmailToken
-from .serializers import LoginSerializer, UserSerializer, RegisterSerializer
+from .models import ConfirmEmailToken, ProductInfo, Category, Shop
+from .serializers import (
+    LoginSerializer,
+    UserSerializer,
+    RegisterSerializer,
+    ProductInfoSerializer,
+    CategorySerializer,
+    ShopSerializer,
+)
 
 # API для регистрации пользователя
 
@@ -125,3 +136,56 @@ class AccountDetail(APIView):
         if attachment:
             email.attach(*attachment)
         email.send()
+
+
+# API для списка продуктов + фильтрация, сортировка, поиск, пагинация
+
+
+class ProductView(ListAPIView):
+    queryset = (
+        ProductInfo.objects.select_related("product", "shop", "product__category")
+        .prefetch_related("product_parameters__parameter")
+        .filter(shop__state=True)
+    )
+    serializer_class = ProductInfoSerializer
+    permission_classes = [AllowAny]
+    pagination_class = LimitOffsetPagination
+
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        "shop_id": ["exact"],
+        "product__category_id": ["exact"],
+        "price": ["gte", "lte"],
+        "quantity": ["gt"],
+    }
+    search_fields = ["product__name", "model"]
+    ordering_fields = ["price", "quantity"]
+
+
+# API для получения информации по отдельному товару
+
+
+class ProductInfoDetailView(RetrieveAPIView):
+    queryset = ProductInfo.objects.select_related(
+        "product", "shop", "product__category"
+    ).prefetch_related("product_parameters__parameter")
+    serializer_class = ProductInfoSerializer
+    permission_classes = [AllowAny]
+
+
+# API для списка категорий
+
+
+class CategoryView(ListAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [AllowAny]
+
+
+# API для списка магазинов
+
+
+class ShopView(ListAPIView):
+    queryset = Shop.objects.all()
+    serializer_class = ShopSerializer
+    permission_classes = [AllowAny]

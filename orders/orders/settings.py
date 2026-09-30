@@ -124,14 +124,14 @@ AUTH_USER_MODEL = "backend.User"
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 # EMAIL_USE_TLS = True
 
-EMAIL_HOST = 'smtp.mail.ru'
+EMAIL_HOST = "smtp.mail.ru"
 
-EMAIL_HOST_USER = 'netology.diplom@mail.ru'
-EMAIL_HOST_PASSWORD = 'CLdm7yW4U9nivz9mbexu'
-EMAIL_PORT = '465'
+EMAIL_HOST_USER = "netology.diplom@mail.ru"
+EMAIL_HOST_PASSWORD = "CLdm7yW4U9nivz9mbexu"
+EMAIL_PORT = "465"
 EMAIL_USE_SSL = True
 SERVER_EMAIL = EMAIL_HOST_USER
 
@@ -145,4 +145,6 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 10,
 }
