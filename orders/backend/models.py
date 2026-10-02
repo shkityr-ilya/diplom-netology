@@ -1,5 +1,5 @@
 from django.contrib.auth.base_user import BaseUserManager
-from django.contrib.auth.models import AbstractUser, Permission, Group
+from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -320,22 +320,13 @@ class ConfirmEmailToken(models.Model):
     )
     key = models.CharField(_("Key"), max_length=64, db_index=True, unique=True)
 
-    def save(self, *args, **kwargs):
-        # Если ключа еще нет, генерируем его перед сохранением
-        if not self.key:
-            self.key = self.generate_key()
-        return super().save(*args, **kwargs)
+    class Meta:
+        verbose_name = "Токен подтверждения Email"
+        verbose_name_plural = "Токены подтверждения Email"
 
+    @staticmethod
+    def generate_key():
+        return get_token_generator().generate_token()
 
-class Meta:
-    verbose_name = "Токен подтверждения Email"
-    verbose_name_plural = "Токены подтверждения Email"
-
-
-@staticmethod
-def generate_key():
-    return get_token_generator().generate_token()
-
-
-def __str__(self):
-    return f"Password reset token for user {self.user}"
+    def __str__(self):
+        return f"Password reset token for user {self.user}"

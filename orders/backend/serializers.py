@@ -1,7 +1,17 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from .models import User, Contact, ProductParameter, ProductInfo, Category, Shop
+
+from .models import (
+    Category,
+    Contact,
+    Order,
+    OrderItem,
+    ProductInfo,
+    ProductParameter,
+    Shop,
+    User,
+)
 
 # Сериализатор для входа пользователя
 
@@ -121,7 +131,7 @@ class ParamsSerializer(serializers.ModelSerializer):
 
 class ProductInfoSerializer(serializers.ModelSerializer):
     product = serializers.CharField(source="product.name")
-    catalog = serializers.CharField(source="product.catalog_id")
+    catalog = serializers.CharField(source="product.category_id")
     shop = serializers.CharField(source="shop.name")
     description = serializers.CharField(source="model")
     price = serializers.IntegerField()
@@ -160,3 +170,45 @@ class ShopSerializer(serializers.ModelSerializer):
     class Meta:
         model = Shop
         fields = ["id", "name", "url"]
+
+
+# Сериализатор для работы с корзиной
+
+
+class BasketItemInputSerializer(serializers.Serializer):
+    product_info_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class BasketItemSerializer(serializers.ModelSerializer):
+    product = serializers.CharField(source="product_info.product.name", read_only=True)
+    shop = serializers.CharField(source="product_info.shop.name", read_only=True)
+    price = serializers.IntegerField(source="product_info.price", read_only=True)
+    sum = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrderItem
+        fields = ("id", "product", "shop", "price", "quantity", "sum")
+
+    def get_sum(self, obj):
+        return obj.quantity * obj.product_info.price
+
+
+class BasketSerializer(serializers.ModelSerializer):
+    order_items = BasketItemSerializer(
+        source="ordered_items", many=True, read_only=True
+    )
+    total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = ("id", "order_items", "total")
+
+    def get_total(self, obj):
+        return sum(
+            item.product_info.price * item.quantity for item in obj.ordered_items.all()
+        )
+
+
+class AddBasketSerializer(serializers.Serializer):
+    items = BasketItemInputSerializer(many=True)

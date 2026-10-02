@@ -2,17 +2,17 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
 from .models import (
-    User,
-    Shop,
     Category,
-    Product,
-    ProductInfo,
-    Parameter,
-    ProductParameter,
+    ConfirmEmailToken,
     Contact,
     Order,
     OrderItem,
-    ConfirmEmailToken,
+    Parameter,
+    Product,
+    ProductInfo,
+    ProductParameter,
+    Shop,
+    User,
 )
 
 

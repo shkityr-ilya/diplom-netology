@@ -1,22 +1,29 @@
+from django.contrib.auth import get_user_model
+from django.db.models import Prefetch
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework import status
+from rest_framework.authtoken.models import Token
+from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
-from django.contrib.auth.models import User
-from rest_framework.authtoken.models import Token
-from .models import ConfirmEmailToken, ProductInfo, Category, Shop
+from rest_framework.views import APIView
+
+from .models import Category, ConfirmEmailToken, Order, OrderItem, ProductInfo, Shop
 from .serializers import (
-    LoginSerializer,
-    UserSerializer,
-    RegisterSerializer,
-    ProductInfoSerializer,
+    AddBasketSerializer,
+    BasketSerializer,
     CategorySerializer,
+    LoginSerializer,
+    ProductInfoSerializer,
+    RegisterSerializer,
     ShopSerializer,
+    UserSerializer,
 )
+from .utils import send_email
+
+User = get_user_model()
 
 # API для регистрации пользователя
 
@@ -28,8 +35,10 @@ class RegisterAccount(APIView):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            token, _ = ConfirmEmailToken.objects.get_or_create(user=user)
-            self._send_email(
+            token, _ = ConfirmEmailToken.objects.get_or_create(
+                user=user, key=ConfirmEmailToken.generate_key()
+            )
+            send_email(
                 subject="Подтверждение аккаунта",
                 message=f"Для подтверждения аккаунта перейдите по ссылке: {token.key}",
                 recipients=[user.email],
@@ -189,3 +198,84 @@ class ShopView(ListAPIView):
     queryset = Shop.objects.all()
     serializer_class = ShopSerializer
     permission_classes = [AllowAny]
+
+
+# API для корзины
+
+
+class BasketView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        basket, _ = (
+            Order.objects.select_related("user")
+            .prefetch_related(
+                Prefetch(
+                    "ordered_items",
+                    queryset=OrderItem.objects.select_related(
+                        "product_info__product", "product_info__shop"
+                    ),
+                )
+            )
+            .get_or_create(user=request.user, status="basket")
+        )
+        serializer = BasketSerializer(basket, context={"request": request})
+        return Response({"status": "OK", "data": serializer.data})
+
+    def post(self, request, *args, **kwargs):
+        serializers = AddBasketSerializer(data=request.data)
+        if not serializers.is_valid():
+            return Response(
+                {"status": "Error", "detail": serializers.errors}, status=400
+            )
+        basket, _ = Order.objects.get_or_create(user=request.user, status="basket")
+        items_data = serializers.validated_data["items"]
+        errors = {}
+        created_count = 0
+        for item in items_data:
+            try:
+                info = ProductInfo.objects.select_related("shop").get(
+                    pk=item["product_info_id"], shop__state=True
+                )
+            except ProductInfo.DoesNotExist:
+                errors[item["product_info_id"]] = (
+                    "Товар не найден или магазин не принимает заказы"
+                )
+                continue
+            obj, created_flag = OrderItem.objects.update_or_create(
+                order=basket,
+                product_info=info,
+                defaults={"quantity": item["quantity"]},
+            )
+
+            if created_flag:
+                created_count += 1
+        if errors:
+            return Response(
+                {
+                    "status": "OK (with errors)",
+                    "created": created_count,
+                    "errors": errors,
+                },
+                status=400,
+            )
+        return Response(
+            {"status": "OK", "created": created_count, "errors": errors}, status=201
+        )
+
+    def put(self, request, *args, **kwargs):
+        return self.post(request, *args, **kwargs)
+
+    def delete(self, request, *args, **kwargs):
+        serializers = AddBasketSerializer(data=request.data)
+        if not serializers.is_valid():
+            return Response(
+                {"status": "Error", "detail": serializers.errors}, status=400
+            )
+        basket, _ = Order.objects.get_or_create(user=request.user, status="basket")
+        items_ids = [
+            item["product_info_id"] for item in serializers.validated_data["items"]
+        ]
+        queryset = OrderItem.objects.filter(order=basket, id__in=items_ids)
+        deleted_count, _ = queryset.delete()
+        return Response({"status": "OK", "deleted": deleted_count}, status=200)

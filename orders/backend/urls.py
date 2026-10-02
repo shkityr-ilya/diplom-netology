@@ -1,13 +1,14 @@
 from django.urls import path
 
 from .views import (
-    RegisterAccount,
-    LoginAccount,
-    ConfirmAccount,
     AccountDetail,
-    ProductView,
-    ProductInfoDetailView,
+    BasketView,
     CategoryView,
+    ConfirmAccount,
+    LoginAccount,
+    ProductInfoDetailView,
+    ProductView,
+    RegisterAccount,
     ShopView,
 )
 
@@ -26,4 +27,5 @@ urlpatterns = [
     ),  # информация по отдельному товару
     path("categories/", CategoryView.as_view(), name="categories"),  # список категорий
     path("shops/", ShopView.as_view(), name="shops"),  # списка магазинов
+    path("basket/", BasketView.as_view(), name="basket"),  # корзина
 ]
