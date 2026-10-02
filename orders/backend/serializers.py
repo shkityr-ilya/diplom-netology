@@ -1,5 +1,9 @@
+import re
+
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
+from django.db.utils import IntegrityError
 from rest_framework import serializers
 
 from .models import (
@@ -21,7 +25,11 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(required=True)
 
     def validate(self, attrs):
-        user = authenticate(username=attrs["email"], password=attrs["password"])
+        user = authenticate(
+            request=self.context.get("request"),
+            email=attrs["email"],
+            password=attrs["password"],
+        )
         if user is None:
             raise serializers.ValidationError("Неверный email или пароль")
         if not user.is_active:
@@ -61,8 +69,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        validated_data.pop("confirm_password")
-        return User.objects.create_user(**validated_data)
+        password = validated_data.pop("password")
+        validated_data['type'] = 'buyer'
+        with transaction.atomic():
+            try:
+                user = User.objects.create(**validated_data)
+                user.set_password(password)
+                user.save()
+                return user
+            except IntegrityError:
+                raise serializers.ValidationError(
+                    {"email": "Пользователь с таким email уже существует"}
+                )
 
 
 # Сериализатор для пользователя
@@ -97,24 +115,6 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "email", "type"]
 
 
-# Сериализатор для контактов
-
-
-class ContactSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Contact
-        fields = [
-            "id",
-            "city",
-            "street",
-            "house",
-            "structure",
-            "building",
-            "apartment",
-            "phone",
-        ]
-
-
 # Сериаизатор для параметров
 
 
@@ -126,7 +126,7 @@ class ParamsSerializer(serializers.ModelSerializer):
         fields = ["name", "value"]
 
 
-# Сериализато для информации о продукте
+# Сериализатор для информации о продукте
 
 
 class ProductInfoSerializer(serializers.ModelSerializer):
@@ -154,7 +154,7 @@ class ProductInfoSerializer(serializers.ModelSerializer):
         ]
 
 
-# Сериализато для категории
+# Сериализатор для категории
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -163,7 +163,7 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = ["id", "name"]
 
 
-# Сериализато для магазина
+# Сериализатор для магазина
 
 
 class ShopSerializer(serializers.ModelSerializer):
@@ -212,3 +212,39 @@ class BasketSerializer(serializers.ModelSerializer):
 
 class AddBasketSerializer(serializers.Serializer):
     items = BasketItemInputSerializer(many=True)
+
+
+# Сериализатор для адреса доставки
+
+
+class ContactSerializer(serializers.ModelSerializer):
+    phone = serializers.CharField(
+        required=True, validators=[], help_text="Формат: +7 (999) 123-45-67"
+    )
+
+    class Meta:
+        model = Contact
+        fields = [
+            "id",
+            "last_name",
+            "first_name",
+            "patronymic",
+            "email",
+            "phone",
+            "city",
+            "street",
+            "house",
+            "structure",
+            "building",
+            "apartment",
+        ]
+        read_only_fields = ["id"]
+        extra_kwargs = {
+            "email": {"required": True},
+            "street": {"required": True},
+        }
+
+    def validate_phone(self, value):
+        if not re.fullmatch(r"[0-9+()\-\s]{5,20}", value):
+            raise serializers.ValidationError("Некорректный номер телефона.")
+        return value

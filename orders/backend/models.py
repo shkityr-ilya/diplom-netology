@@ -240,6 +240,10 @@ class Contact(models.Model):
         blank=True,
         on_delete=models.CASCADE,
     )
+    last_name = models.CharField(max_length=50, verbose_name="Фамилия", blank=True)
+    first_name = models.CharField(max_length=50, verbose_name="Имя", blank=True)
+    patronymic = models.CharField(max_length=50, verbose_name="Отчество", blank=True)
+    email = models.EmailField(verbose_name="Email", blank=True)
     city = models.CharField(max_length=50, verbose_name="Город")
     street = models.CharField(max_length=100, verbose_name="Улица")
     house = models.CharField(max_length=15, verbose_name="Дом", blank=True)
@@ -253,7 +257,7 @@ class Contact(models.Model):
         verbose_name_plural = "Список контактов пользователя"
 
     def __str__(self):
-        return f"{self.city} {self.street} {self.house}"
+        return f"{self.last_name} {self.first_name} {self.patronymic} {self.city} {self.street} {self.phone}"
 
 
 class Order(models.Model):

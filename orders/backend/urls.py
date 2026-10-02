@@ -5,6 +5,8 @@ from .views import (
     BasketView,
     CategoryView,
     ConfirmAccount,
+    ContactDetailView,
+    ContactListCreateView,
     LoginAccount,
     ProductInfoDetailView,
     ProductView,
@@ -28,4 +30,13 @@ urlpatterns = [
     path("categories/", CategoryView.as_view(), name="categories"),  # список категорий
     path("shops/", ShopView.as_view(), name="shops"),  # списка магазинов
     path("basket/", BasketView.as_view(), name="basket"),  # корзина
+    path(
+        "user/contact/", ContactListCreateView.as_view(), name="user-contact"
+    ),  # контакты пользователя
+    path(
+        "user/contact/<int:pk>/",
+        ContactDetailView.as_view(),
+        name="user-contact-detail",
+    ),
+    # детальная инфа о контакте пользователя
 ]

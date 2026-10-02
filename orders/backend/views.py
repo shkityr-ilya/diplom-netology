@@ -1,7 +1,8 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Prefetch
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.authtoken.models import Token
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.generics import ListAPIView, RetrieveAPIView
@@ -10,11 +11,20 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Category, ConfirmEmailToken, Order, OrderItem, ProductInfo, Shop
+from .models import (
+    Category,
+    ConfirmEmailToken,
+    Contact,
+    Order,
+    OrderItem,
+    ProductInfo,
+    Shop,
+)
 from .serializers import (
     AddBasketSerializer,
     BasketSerializer,
     CategorySerializer,
+    ContactSerializer,
     LoginSerializer,
     ProductInfoSerializer,
     RegisterSerializer,
@@ -24,6 +34,7 @@ from .serializers import (
 from .utils import send_email
 
 User = get_user_model()
+
 
 # API для регистрации пользователя
 
@@ -35,7 +46,7 @@ class RegisterAccount(APIView):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            token, _ = ConfirmEmailToken.objects.get_or_create(
+            token, _ = ConfirmEmailToken.objects.update_or_create(
                 user=user, key=ConfirmEmailToken.generate_key()
             )
             send_email(
@@ -223,33 +234,34 @@ class BasketView(APIView):
         return Response({"status": "OK", "data": serializer.data})
 
     def post(self, request, *args, **kwargs):
-        serializers = AddBasketSerializer(data=request.data)
-        if not serializers.is_valid():
+        serializer = AddBasketSerializer(data=request.data)
+        if not serializer.is_valid():
             return Response(
-                {"status": "Error", "detail": serializers.errors}, status=400
+                {"status": "Error", "detail": serializer.errors}, status=400
             )
         basket, _ = Order.objects.get_or_create(user=request.user, status="basket")
-        items_data = serializers.validated_data["items"]
+        items_data = serializer.validated_data["items"]
         errors = {}
         created_count = 0
-        for item in items_data:
-            try:
-                info = ProductInfo.objects.select_related("shop").get(
-                    pk=item["product_info_id"], shop__state=True
+        with transaction.atomic():
+            for item in items_data:
+                try:
+                    info = ProductInfo.objects.select_related("shop").get(
+                        pk=item["product_info_id"], shop__state=True
+                    )
+                except ProductInfo.DoesNotExist:
+                    errors[item["product_info_id"]] = (
+                        "Товар не найден или магазин не принимает заказы"
+                    )
+                    continue
+                obj, created_flag = OrderItem.objects.update_or_create(
+                    order=basket,
+                    product_info=info,
+                    defaults={"quantity": item["quantity"]},
                 )
-            except ProductInfo.DoesNotExist:
-                errors[item["product_info_id"]] = (
-                    "Товар не найден или магазин не принимает заказы"
-                )
-                continue
-            obj, created_flag = OrderItem.objects.update_or_create(
-                order=basket,
-                product_info=info,
-                defaults={"quantity": item["quantity"]},
-            )
 
-            if created_flag:
-                created_count += 1
+                if created_flag:
+                    created_count += 1
         if errors:
             return Response(
                 {
@@ -267,15 +279,38 @@ class BasketView(APIView):
         return self.post(request, *args, **kwargs)
 
     def delete(self, request, *args, **kwargs):
-        serializers = AddBasketSerializer(data=request.data)
-        if not serializers.is_valid():
+        serializer = AddBasketSerializer(data=request.data)
+        if not serializer.is_valid():
             return Response(
-                {"status": "Error", "detail": serializers.errors}, status=400
+                {"status": "Error", "detail": serializer.errors}, status=400
             )
         basket, _ = Order.objects.get_or_create(user=request.user, status="basket")
         items_ids = [
-            item["product_info_id"] for item in serializers.validated_data["items"]
+            item["product_info_id"] for item in serializer.validated_data["items"]
         ]
-        queryset = OrderItem.objects.filter(order=basket, id__in=items_ids)
+        queryset = OrderItem.objects.filter(order=basket, product_info_id__in=items_ids)
         deleted_count, _ = queryset.delete()
         return Response({"status": "OK", "deleted": deleted_count}, status=200)
+
+
+# API для добавления/удаления адреса доставки
+
+
+class ContactListCreateView(generics.ListCreateAPIView):
+    serializer_class = ContactSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Contact.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class ContactDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ContactSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_url_kwarg = "pk"
+
+    def get_queryset(self):
+        return Contact.objects.filter(user=self.request.user)
