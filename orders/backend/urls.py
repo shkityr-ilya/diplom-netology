@@ -8,6 +8,7 @@ from .views import (
     ContactDetailView,
     ContactListCreateView,
     LoginAccount,
+    OrderView,
     ProductInfoDetailView,
     ProductView,
     RegisterAccount,
@@ -39,4 +40,10 @@ urlpatterns = [
         name="user-contact-detail",
     ),
     # детальная инфа о контакте пользователя
+    path(
+        "order/",
+        OrderView.as_view(),
+        name="order",
+    ),
+    # подтверждение заказа
 ]

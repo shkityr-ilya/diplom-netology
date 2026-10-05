@@ -3,6 +3,7 @@ import re
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
+from django.db.models import F, Sum
 from django.db.utils import IntegrityError
 from rest_framework import serializers
 
@@ -70,7 +71,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop("password")
-        validated_data['type'] = 'buyer'
+        validated_data["type"] = "buyer"
         with transaction.atomic():
             try:
                 user = User.objects.create(**validated_data)
@@ -248,3 +249,104 @@ class ContactSerializer(serializers.ModelSerializer):
         if not re.fullmatch(r"[0-9+()\-\s]{5,20}", value):
             raise serializers.ValidationError("Некорректный номер телефона.")
         return value
+
+
+# Сериализатор для подтверждения заказа
+
+
+class OrderConfirmSerializer(serializers.Serializer):
+    id = serializers.IntegerField(write_only=True)  # Входящий ID заказа
+    contact = serializers.IntegerField(write_only=True)  # Входящий ID контакта
+    order_id = serializers.IntegerField(source="id", read_only=True)
+    state = serializers.CharField(read_only=True)
+    dt = serializers.DateTimeField(read_only=True)
+    total = serializers.SerializerMethodField()
+    contact_data = serializers.SerializerMethodField()
+
+    class Meta:
+        fields = ["id", "contact", "order_id", "state", "dt", "total", "contact_data"]
+
+    def get_total(self, obj):
+        return getattr(obj, "total", None)
+
+    def get_contact_data(self, obj):
+        contact = getattr(obj, "contact_obj", None)
+        if contact:
+            return ContactSerializer(contact).data
+        return None
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        order_id = attrs.get("id")
+        contact_id = attrs.get("contact")
+        try:
+            self.instance = (
+                Order.objects.select_for_update()
+                .filter(pk=order_id, user=user, state="basket")
+                .annotate(
+                    total=Sum(
+                        F("ordered_items__quantity")
+                        * F("ordered_items__product_info__price")
+                    )
+                )
+                .first()
+            )
+            if not self.instance:
+                raise serializers.ValidationError(
+                    {"id": "Заказ не найден или не в состоянии 'basket'."}
+                )
+        except Exception as e:
+            raise serializers.ValidationError({"id": str(e)})
+        try:
+            self.contact_obj = Contact.objects.get(pk=contact_id, user=user)
+        except Contact.DoesNotExist:
+            raise serializers.ValidationError({"contact": "Контакт не найден."})
+        return attrs
+
+    def save(self, **kwargs):
+        instance = self.instance
+        contact_obj = self.contact_obj
+        errors = []
+        for item in instance.ordered_items.all():
+            info = item.product_info
+            shop = info.shop
+            if not shop.state:
+                errors.append(f"✖ Магазин «{shop.name}» временно недоступен.")
+            elif info.quantity < item.quantity:
+                errors.append(
+                    f"Товара «{info.product.name} ({info.model})» осталось всего {info.quantity}"
+                )
+        if errors:
+            raise serializers.ValidationError({"non_field_errors": "\n".join(errors)})
+        for item in instance.ordered_items.all():
+            info = item.product_info
+            info.quantity = max(info.quantity - item.quantity, 0)
+            info.save(update_fields=["quantity"])
+        instance.state = "confirmed"
+        instance.contact = contact_obj
+        instance.save(update_fields=["state", "contact"])
+        return instance
+
+
+# Сериализатор для деталей о заказе
+
+
+class OrderDetailSerializer(serializers.ModelSerializer):
+    order_items = BasketItemSerializer(
+        source="ordered_items", many=True, read_only=True
+    )
+    total_sum = serializers.SerializerMethodField()
+    contact_data = ContactSerializer(source="contact", read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ["id", "dt", "state", "order_items", "total_sum", "contact_data"]
+
+    def get_total_sum(self, obj):
+        result = (
+            getattr(obj, "total_sum", None)
+            or obj.ordered_items.aggregate(
+                total=Sum(F("quantity") * F("product_info__price"))
+            )["total"]
+        )
+        return result or 0

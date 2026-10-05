@@ -26,12 +26,14 @@ from .serializers import (
     CategorySerializer,
     ContactSerializer,
     LoginSerializer,
+    OrderConfirmSerializer,
+    OrderDetailSerializer,
     ProductInfoSerializer,
     RegisterSerializer,
     ShopSerializer,
     UserSerializer,
 )
-from .utils import send_email
+from .utils import send_admin_invoice, send_client_email, send_email
 
 User = get_user_model()
 
@@ -314,3 +316,31 @@ class ContactDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Contact.objects.filter(user=self.request.user)
+
+
+# API для подтверждения заказа
+
+
+class OrderView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        serializer = OrderConfirmSerializer(
+            data=request.data, context={"request": request}
+        )
+
+        serializer.is_valid(raise_exception=True)
+        confirmed_order = serializer.save()
+        send_client_email(request.user, confirmed_order)
+        send_admin_invoice(confirmed_order)
+        response_serializer = OrderDetailSerializer(confirmed_order)
+        return Response(
+            {
+                "status": "OK",
+                "detail": f"Заказ №{confirmed_order.id} подтверждён.",
+                "total": confirmed_order.total,
+                "data": response_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
