@@ -344,3 +344,28 @@ class OrderView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+# API для получения списка заказов
+
+
+class OrderListView(ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = OrderDetailSerializer
+
+    def get_queryset(self):
+        return (
+            Order.objects.filter(user=self.request.user)
+            .exclude(state="basket")
+            .select_related("contact")
+            .prefetch_related("ordered_items__product_info__product")
+        )
+
+
+class OrderDetailView(RetrieveAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = OrderDetailSerializer
+    lookup_url_kwarg = "pk"
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)
