@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
+from django.core.mail import EmailMessage
 from django.db import transaction
 from django.db.models import Prefetch
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, status
 from rest_framework.authtoken.models import Token
@@ -28,6 +30,7 @@ from .serializers import (
     LoginSerializer,
     OrderConfirmSerializer,
     OrderDetailSerializer,
+    OrderStateSerializer,
     ProductInfoSerializer,
     RegisterSerializer,
     ShopSerializer,
@@ -67,15 +70,6 @@ class RegisterAccount(APIView):
             {"Status": "Error", "Error": serializer.errors},
             status=status.HTTP_400_BAD_REQUEST,
         )
-
-    @staticmethod
-    def _send_email(subject, message, recipients, attachment=None):
-        from django.core.mail import EmailMessage
-
-        email = EmailMessage(subject=subject, body=message, to=recipients)
-        if attachment:
-            email.attach(*attachment)
-            email.send()
 
 
 # API для подтверждения аккаунта
@@ -140,7 +134,7 @@ class AccountDetail(APIView):
         serializer = UserSerializer(request.user, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            self.send_email(
+            send_email(
                 subject="Изменение данных профиля",
                 message=f"Данные вашего профиля были изменены. Новые данные: {serializer.data}",
                 recipients=[request.user.email],
@@ -152,7 +146,6 @@ class AccountDetail(APIView):
         )
 
     def send_email(self, subject, message, recipients, attachment=None):
-        from django.core.mail import EmailMessage
 
         email = EmailMessage(subject=subject, body=message, to=recipients)
         if attachment:
@@ -230,7 +223,7 @@ class BasketView(APIView):
                     ),
                 )
             )
-            .get_or_create(user=request.user, status="basket")
+            .get_or_create(user=request.user, state="basket")
         )
         serializer = BasketSerializer(basket, context={"request": request})
         return Response({"status": "OK", "data": serializer.data})
@@ -241,7 +234,7 @@ class BasketView(APIView):
             return Response(
                 {"status": "Error", "detail": serializer.errors}, status=400
             )
-        basket, _ = Order.objects.get_or_create(user=request.user, status="basket")
+        basket, _ = Order.objects.get_or_create(user=request.user, state="basket")
         items_data = serializer.validated_data["items"]
         errors = {}
         created_count = 0
@@ -286,7 +279,7 @@ class BasketView(APIView):
             return Response(
                 {"status": "Error", "detail": serializer.errors}, status=400
             )
-        basket, _ = Order.objects.get_or_create(user=request.user, status="basket")
+        basket, _ = Order.objects.get_or_create(user=request.user, state="basket")
         items_ids = [
             item["product_info_id"] for item in serializer.validated_data["items"]
         ]
@@ -324,16 +317,20 @@ class ContactDetailView(generics.RetrieveUpdateDestroyAPIView):
 class OrderView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @transaction.atomic
     def post(self, request, *args, **kwargs):
         serializer = OrderConfirmSerializer(
             data=request.data, context={"request": request}
         )
 
-        serializer.is_valid(raise_exception=True)
-        confirmed_order = serializer.save()
-        send_client_email(request.user, confirmed_order)
-        send_admin_invoice(confirmed_order)
+        with transaction.atomic():
+            serializer.is_valid(raise_exception=True)
+            confirmed_order = serializer.save()
+            transaction.on_commit(
+                lambda: (
+                    send_client_email(request.user, confirmed_order),
+                    send_admin_invoice(confirmed_order),
+                )
+            )
         response_serializer = OrderDetailSerializer(confirmed_order)
         return Response(
             {
@@ -358,7 +355,10 @@ class OrderListView(ListAPIView):
             Order.objects.filter(user=self.request.user)
             .exclude(state="basket")
             .select_related("contact")
-            .prefetch_related("ordered_items__product_info__product")
+            .prefetch_related(
+                "ordered_items__product_info__product",
+                "ordered_items__product_info__shop",
+            )
         )
 
 
@@ -368,4 +368,31 @@ class OrderDetailView(RetrieveAPIView):
     lookup_url_kwarg = "pk"
 
     def get_queryset(self):
-        return Order.objects.filter(user=self.request.user)
+        return (
+            Order.objects.filter(user=self.request.user)
+            .exclude(state="basket")
+            .select_related("contact")
+            .prefetch_related(
+                "ordered_items__product_info__product",
+                "ordered_items__product_info__shop",
+            )
+        )
+
+
+# API для редактирования статуса заказа
+
+
+class OrderStateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk=None, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response(
+                {"Status": False, "Errors": "Только для администратора"}, status=403
+            )
+        order = get_object_or_404(Order, pk=pk)
+        serializer = OrderStateSerializer(order, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"Status": True, "data": serializer.data})
+        return Response({"Status": False, "Errors": serializer.errors}, status=400)

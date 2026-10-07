@@ -70,6 +70,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        validated_data.pop("confirm_password")
         password = validated_data.pop("password")
         validated_data["type"] = "buyer"
         with transaction.atomic():
@@ -311,7 +312,7 @@ class OrderConfirmSerializer(serializers.Serializer):
             info = item.product_info
             shop = info.shop
             if not shop.state:
-                errors.append(f"✖ Магазин «{shop.name}» временно недоступен.")
+                errors.append(f"Магазин «{shop.name}» временно недоступен.")
             elif info.quantity < item.quantity:
                 errors.append(
                     f"Товара «{info.product.name} ({info.model})» осталось всего {info.quantity}"
@@ -322,7 +323,7 @@ class OrderConfirmSerializer(serializers.Serializer):
             info = item.product_info
             info.quantity = max(info.quantity - item.quantity, 0)
             info.save(update_fields=["quantity"])
-        instance.state = "confirmed"
+        instance.state = "new"
         instance.contact = contact_obj
         instance.save(update_fields=["state", "contact"])
         return instance
@@ -350,3 +351,12 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             )["total"]
         )
         return result or 0
+
+
+# Сериализатор для редактирование статуса заказа
+
+
+class OrderStateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Order
+        fields = ("state",)

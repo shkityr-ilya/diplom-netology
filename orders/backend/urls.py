@@ -10,6 +10,7 @@ from .views import (
     LoginAccount,
     OrderDetailView,
     OrderListView,
+    OrderStateView,
     OrderView,
     ProductInfoDetailView,
     ProductView,
@@ -52,6 +53,9 @@ urlpatterns = [
         "orders/", OrderListView.as_view(), name="order-list"
     ),  # получение списка заказов
     path(
-        "orders/<int:pk>/", OrderDetailView.as_view(), name="order-detail"
+        "order/<int:pk>/", OrderDetailView.as_view(), name="order-detail"
     ),  # получение деталей заказа
+    path(
+        "admin/order/<int:pk>/", OrderStateView.as_view(), name="admin-order-state"
+    ),  # редактирование статуса заказа
 ]
