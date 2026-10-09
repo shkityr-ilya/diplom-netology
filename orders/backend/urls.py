@@ -12,6 +12,7 @@ from .views import (
     OrderListView,
     OrderStateView,
     OrderView,
+    PartnerUpdate,
     ProductInfoDetailView,
     ProductView,
     RegisterAccount,
@@ -58,4 +59,7 @@ urlpatterns = [
     path(
         "admin/order/<int:pk>/", OrderStateView.as_view(), name="admin-order-state"
     ),  # редактирование статуса заказа
+    path(
+        "partner/update/", PartnerUpdate.as_view(), name="partner_update"
+    ),  # импорт товаров
 ]
